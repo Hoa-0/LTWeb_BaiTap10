@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Chat Support</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: linear-gradient(135deg, #0078d7, #00b4d8);
+      margin: 0;
+      padding: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #333;
+    }
+
+    #chat-container {
+      width: 420px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: fadeIn 0.5s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    #chat-header {
+      background: #0078d7;
+      color: #fff;
+      padding: 14px 18px;
+      font-size: 18px;
+      font-weight: bold;
+      text-align: center;
+      letter-spacing: 0.5px;
+    }
+
+    #login {
+      padding: 25px;
+      text-align: center;
+    }
+
+    #login input {
+      width: 85%;
+      margin: 6px 0;
+      padding: 10px;
+      font-size: 15px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      outline: none;
+      transition: 0.2s;
+    }
+
+    #login input:focus {
+      border-color: #0078d7;
+      box-shadow: 0 0 6px rgba(0,120,215,0.4);
+    }
+
+    #connectBtn {
+      margin-top: 10px;
+      padding: 10px 30px;
+      background: #0078d7;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    #connectBtn:hover {
+      background: #005fa3;
+    }
+
+    #chat-box {
+      flex: 1;
+      padding: 12px 14px;
+      overflow-y: auto;
+      background: #f5f7fa;
+      display: none;
+      scroll-behavior: smooth;
+    }
+
+    .msg {
+      margin: 10px 0;
+      max-width: 75%;
+      padding: 10px 14px;
+      border-radius: 16px;
+      line-height: 1.4em;
+      word-wrap: break-word;
+      animation: fadeMsg 0.25s ease-in;
+    }
+
+    @keyframes fadeMsg {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .mine {
+      background: #0078d7;
+      color: #fff;
+      margin-left: auto;
+      border-bottom-right-radius: 3px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .other {
+      background: #e6e6e6;
+      color: #333;
+      margin-right: auto;
+      border-bottom-left-radius: 3px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    #chat-input {
+      display: none;
+      border-top: 1px solid #ddd;
+      background: #fff;
+      padding: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #msg {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+      transition: 0.2s;
+    }
+
+    #msg:focus {
+      border-color: #0078d7;
+      box-shadow: 0 0 4px rgba(0,120,215,0.3);
+    }
+
+    #sendBtn {
+      background: #0078d7;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    #sendBtn:hover {
+      background: #005fa3;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="chat-container">
+    <div id="chat-header">💬 Chat Support</div>
+
+    <div id="login">
+      <input id="username" placeholder="👤 Your name">
+      <input id="roomId" placeholder="🏠 Room ID">
+      <button id="connectBtn" onclick="connect()">Join Chat</button>
+    </div>
+
+    <div id="chat-box"></div>
+
+    <div id="chat-input">
+      <input id="msg" placeholder="Type your message..." autocomplete="off">
+      <button id="sendBtn" onclick="sendMsg()">Send</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/stompjs/lib/stomp.min.js"></script>
+  <script>
+    let stomp, user, room;
+
+    function connect() {
+      user = document.getElementById("username").value.trim();
+      room = document.getElementById("roomId").value.trim();
+
+      if (!user || !room) {
+        alert("Please enter both name and room ID!");
+        return;
+      }
+
+      document.getElementById("login").style.display = "none";
+      document.getElementById("chat-box").style.display = "block";
+      document.getElementById("chat-input").style.display = "flex";
+
+      // Load chat history
+      fetch("/api/messages/" + room)
+        .then(res => res.json())
+        .then(list => list.forEach(m => addMessage(m.sender, m.content)));
+
+      const socket = new SockJS("/ws");
+      stomp = Stomp.over(socket);
+      stomp.connect({}, () => {
+        stomp.subscribe("/topic/room." + room, msg => {
+          const m = JSON.parse(msg.body);
+          addMessage(m.from, m.content);
+        });
+        stomp.send("/app/support.join", {}, JSON.stringify({
+          type: "JOIN", roomId: room, from: user
+        }));
+      });
+    }
+
+    function sendMsg() {
+      const text = document.getElementById("msg").value.trim();
+      if (!text) return;
+
+      stomp.send("/app/support.send", {}, JSON.stringify({
+        type: "CHAT",
+        roomId: room,
+        from: user,
+        content: text
+      }));
+
+      document.getElementById("msg").value = "";
+    }
+
+    function addMessage(sender, content) {
+      const div = document.createElement("div");
+      div.className = "msg " + (sender === user ? "mine" : "other");
+      div.textContent = sender + ": " + content;
+      const box = document.getElementById("chat-box");
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+    }
+  </script>
+</body>
+</html>
